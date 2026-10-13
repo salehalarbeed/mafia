@@ -345,12 +345,17 @@ body[data-mode="tv"] .voters{max-width:1100px;margin:10px auto}body[data-mode="t
 .tot-row.lead{background:linear-gradient(145deg,#f2d47a,#a87c22);color:#1b1408}.tot-rank{width:24px;text-align:center;opacity:.7;font-weight:800}
 .tot-name{flex:1}.tot-row b{font-size:20px}
 body[data-mode="tv"] .totals .tot-row{font-size:clamp(18px,1.5vw,30px)}body[data-mode="tv"] .totals .tot-row b{font-size:clamp(22px,1.9vw,38px)}
-body[data-mode="tv"][data-crowd="l"] .tv .grid{grid-template-columns:repeat(auto-fill,minmax(clamp(88px,6.6vw,150px),1fr))!important;gap:8px!important}
-body[data-mode="tv"][data-crowd="xl"] .tv .grid{grid-template-columns:repeat(auto-fill,minmax(clamp(72px,5.2vw,120px),1fr))!important;gap:6px!important}
-body[data-mode="tv"][data-crowd="xxl"] .tv .grid{grid-template-columns:repeat(auto-fill,minmax(clamp(60px,4.3vw,100px),1fr))!important;gap:4px!important}
-body[data-mode="tv"][data-crowd="xl"] .player-state,body[data-mode="tv"][data-crowd="xxl"] .player-state{font-size:11px}
 body[data-mode="tv"] .tv .grid.balanced{grid-template-columns:repeat(var(--cols),minmax(0,1fr))!important;gap:10px 10px!important;justify-content:center}
 body[data-mode="tv"] .tv .grid.balanced .player-portrait{max-width:none}
+.host-lag{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:31;background:#3a1418;border:1px solid #b54650;color:#ffd0d0;border-radius:999px;padding:6px 16px;font-size:14px;font-weight:700}
+.pick.locked{opacity:.45;cursor:not-allowed;display:flex;flex-direction:column;align-items:center;gap:2px}.pick.locked small{font-size:11px;font-weight:400}
+.bal-row{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;padding:7px 0;border-bottom:1px solid #ffffff10}.bal-head{color:#edcf81;font-weight:700}
+body[data-mode="tv"]:not([data-status="lobby"]) .tv .grid .player-tile{width:100%}
+body[data-mode="tv"] .tv .grid{max-width:none!important;width:100%!important}
+body[data-mode="tv"] .tv .grid .player-tile{width:100%!important;max-width:none!important;min-width:0;overflow:hidden}
+body[data-mode="tv"] .tv .grid .player-portrait{max-width:none!important}
+body[data-mode="tv"] .tv .grid .player-state{display:none!important}
+body[data-mode="tv"] .tv .grid .player-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;font-size:clamp(11px,.9vw,18px)}
 </style>
 </head>
 <body>
@@ -376,16 +381,21 @@ const PLAYER_IMG = {"alive": "data:image/webp;base64,UklGRmpJAABXRUJQVlA4WAoAAAA
 const DEF_T={reveal:30,night:60,revenge:30,talk:120,vote:60,result:8,defense:20};
 const T_LIM={defense:[10,60,5],reveal:[10,120,10],night:[30,180,15],talk:[30,600,30],vote:[20,180,10]};
 const fmt=s=>{s=Math.max(0,Math.round(s));const m=Math.floor(s/60),x=s%60;return m?`${m}:${String(x).padStart(2,'0')}`:`${x} ث`;};
+const PTS={small:6,town:[1,2],mafia:[2,3],survivor:3,sniper:[3,2,1],policeHit:2,policeMiss:-1};
+const nq=n=>n===1?'نقطة واحدة':n===2?'نقطتين':`${n} نقاط`;
+const ptsTown=()=>`إذا فاز الشعب تحصل على ${nq(PTS.town[1])} (${nq(PTS.town[0])} إذا كان اللاعبون ${PTS.small} أو أقل).`;
+const ptsMafia=()=>`إذا فازت المافيا تحصل على ${nq(PTS.mafia[1])} (${nq(PTS.mafia[0])} إذا كان اللاعبون ${PTS.small} أو أقل).`;
+const ptsSniper=()=>{const o=['الأولى','الثانية','الثالثة','الرابعة'];return 'تحصل على '+PTS.sniper.map((v,i)=>`${nq(v)} إذا مت في الجولة ${o[i]}`).join('، و')+'، ولا نقاط بعدها.';};
 const ROLES = {
-  mafia:{name:"المافيا",team:"mafia",icon:"🔪",ability:"لازم كل أفراد المافيا الأحياء يختارون نفس اللاعب كل ليلة؛ ما ينفّذ الهجوم إلا بعد اتفاق الجميع."},
-  spy:{name:"الجاسوس",team:"mafia",icon:"🕵️",ability:"تعرف سرًا منذ البداية هوية لاعب واحد من أصحاب الأدوار الخاصة بالشعب، وتشارك المافيا نقاط الفوز. لا تملك حركة ليلية."},
-  suicidal:{name:"القناص",team:"neutral",icon:"🎯",ability:"عند موتك تختار لاعبًا حيًا يموت معك. تحصل على 3 نقاط إذا مت في الجولة الأولى، ونقطتين في الثانية، ونقطة في الثالثة، ولا نقاط بعدها."},
-  police:{name:"الشرطي",team:"neutral",icon:"👮",ability:"لديك طلقتان طوال اللعبة (طلقة واحدة فقط إذا كان اللاعبون 6 أو أقل). كل ليلة يمكنك إطلاق طلقة أو الاحتفاظ بها. تحصل على نقطتين عن كل لاعب من المافيا تقتله."},
-  survivor:{name:"الناجي",team:"neutral",icon:"🛡️",ability:"هدفك البقاء حيًا حتى نهاية اللعبة. تحصل على 3 نقاط إذا بقيت حيًا، بغض النظر عن الفريق الفائز."},
-  doctor:{name:"الدكتور",team:"town",icon:"💉",ability:"تحمي لاعبًا أو نفسك كل ليلة. الحماية تمنع أول محاولة إقصاء في الجولة من أي مصدر: المافيا أو الشرطي أو القناص أو التصويت. تُستهلك مرة واحدة وتنتهي عند بدء الليل التالي."},
-  journalist:{name:"الصحفي",team:"town",icon:"🔎",ability:"تحقق كل ليلة من لاعب، وتعرف سرًا هل ينتمي لفريق المافيا أم لا."},
-  mayor:{name:"العمدة",team:"town",icon:"🎖️",ability:"صوتك يُحسب بصوتين. تحصل على نقطتين إذا فاز الشعب (نقطة واحدة إذا كان اللاعبون 6 أو أقل)."},
-  citizen:{name:"المواطن",team:"town",icon:"👤",ability:"ما عندك حركة ليلية. تشارك نهارًا في النقاش والتصويت."}
+  mafia:{name:"المافيا",team:"mafia",icon:"🔪",ability:`لازم كل أفراد المافيا الأحياء يختارون نفس اللاعب كل ليلة؛ ما ينفّذ الهجوم إلا بعد اتفاق الجميع. ${ptsMafia()}`},
+  spy:{name:"الجاسوس",team:"mafia",icon:"🕵️",ability:`تعرف سرًا منذ البداية هوية لاعب واحد من أصحاب الأدوار الخاصة بالشعب. لا تملك حركة ليلية. ${ptsMafia()}`},
+  suicidal:{name:"القناص",team:"neutral",icon:"🎯",ability:`عند موتك تختار لاعبًا حيًا يموت معك. ${ptsSniper()}`},
+  police:{name:"الشرطي",team:"neutral",icon:"👮",ability:`لديك طلقتان طوال اللعبة (طلقة واحدة فقط إذا كان اللاعبون ${PTS.small} أو أقل). كل ليلة يمكنك إطلاق طلقة أو الاحتفاظ بها. تحصل على ${nq(PTS.policeHit)} عن كل لاعب من فريق المافيا تقتله (والجاسوس منهم)، وتنخصم منك ${nq(-PTS.policeMiss)} إذا قتلت لاعبًا بريئًا.`},
+  survivor:{name:"الناجي",team:"neutral",icon:"🛡️",ability:`هدفك البقاء حيًا حتى نهاية اللعبة. تحصل على ${nq(PTS.survivor)} إذا بقيت حيًا، بغض النظر عن الفريق الفائز.`},
+  doctor:{name:"الدكتور",team:"town",icon:"💉",ability:`تحمي لاعبًا أو نفسك كل ليلة. الحماية تمنع أول محاولة إقصاء في الجولة من أي مصدر: المافيا أو الشرطي أو القناص أو التصويت. تُستهلك مرة واحدة وتنتهي عند بدء الليل التالي. ما تقدر تحمي نفس اللاعب (ولا نفسك) ليلتين ورا بعض. ${ptsTown()}`},
+  journalist:{name:"الصحفي",team:"town",icon:"🔎",ability:`تحقق كل ليلة من لاعب، وتعرف سرًا هل ينتمي لفريق المافيا أم لا. ${ptsTown()}`},
+  mayor:{name:"العمدة",team:"town",icon:"🎖️",ability:`صوتك يُحسب بصوتين. ${ptsTown()}`},
+  citizen:{name:"المواطن",team:"town",icon:"👤",ability:`ما عندك حركة ليلية. تشارك نهارًا في النقاش والتصويت. ${ptsTown()}`}
 };
 const KEYS = ["mafia","spy","suicidal","police","survivor","doctor","journalist","mayor","citizen"];
 const TEAM = {mafia:"المافيا",town:"الشعب",neutral:"المحايدون"};
@@ -399,16 +409,15 @@ const TABLE = {
 };
 function defaultDist(n){
   if(n<4)return KEYS.map(()=>0);
-  if(n<10&&TABLE[n])return [...TABLE[n]];
-  const d=KEYS.map(()=>0),I=k=>KEYS.indexOf(k);
-  d[I('mafia')]=n<=20?TABLE[n][0]:Math.floor(n/4);
-  d[I('spy')]=n>=11?1:0;
-  d[I('doctor')]=1;d[I('journalist')]=1;d[I('mayor')]=1;
-  let N=Math.round(n/3);
-  const fixed=()=>d.reduce((a,b)=>a+b,0);
-  while(N>0&&fixed()+N>n)N--;
-  ['suicidal','survivor','police'].forEach((k,i)=>{d[I(k)]=Math.floor(N/3)+(i<N%3?1:0);});
-  d[I('citizen')]=n-fixed();
+  const I=k=>KEYS.indexOf(k);
+  let d;
+  if(TABLE[n])d=[...TABLE[n]];
+  else{d=[...TABLE[20]];d[I('mafia')]=Math.floor(n/4);}
+  if(n>=12){ // big groups: neutrals (sniper + survivor + police) capped at floor(n/5)
+    const cap=Math.floor(n/5),neutral=()=>d[I('suicidal')]+d[I('survivor')]+d[I('police')];
+    for(const k of ['survivor','police','suicidal'])while(neutral()>cap&&d[I(k)]>0)d[I(k)]--;
+  }
+  d[I('citizen')]=0;d[I('citizen')]=n-d.reduce((a,b)=>a+b,0);
   return d;
 }
 function validDist(n,d){return n>=4&&d.length===KEYS.length&&d.every(v=>Number.isInteger(v)&&v>=0&&v<=n)&&d[0]>=1&&d[0]+d[1]<n&&d.reduce((a,b)=>a+b,0)===n;}
@@ -451,7 +460,7 @@ function stopAll(){S.unsubs.forEach(u=>{try{u()}catch(e){}});S.unsubs=[];}
 function onErr(e){if(S.mode==='host'&&S.room&&S.room.hostUid!==UID)return;console.error(e);toast('ما في صلاحية أو انقطع الاتصال');}
 function enter(code,mode){
   stopAll();newlyDead.clear();
-  Object.assign(S,{code,mode,room:null,players:[],votes:{},secrets:{},actions:{},secret:null,myAction:null,revealed:false});
+  Object.assign(S,{code,mode,room:null,players:[],votes:{},secrets:{},actions:{},secret:null,myAction:null,revealed:false,secretsReady:false});
   ls.set('mafia_last',JSON.stringify({code,mode}));
   const on=(q,f)=>S.unsubs.push(q.onSnapshot(f,onErr));
   on(roomRef(code),s=>{
@@ -467,7 +476,7 @@ function enter(code,mode){
   on(col('players'),q=>{const previous=new Map(S.players.map(p=>[p.id,p.alive]));if(S.room&&S.room.status==='lobby'&&previous.size&&q.size>previous.size)SFX.play('join');S.players=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.joinedAt-b.joinedAt);S.players.forEach(p=>{if(previous.get(p.id)===true&&p.alive===false)newlyDead.add(p.id);});relay();render();});
   on(col('votes'),q=>{S.votes={};q.docs.forEach(d=>S.votes[d.id]=d.data().target);render();if(S.mode==='host')tick();});
   if(mode==='host'){
-    on(col('secrets'),q=>{S.secrets={};q.docs.forEach(d=>S.secrets[d.id]=d.data());S.secret=S.secrets[UID]||null;relay();render();});
+    on(col('secrets'),q=>{S.secrets={};q.docs.forEach(d=>S.secrets[d.id]=d.data());S.secret=S.secrets[UID]||null;S.secretsReady=true;relay();render();});
     on(col('actions'),q=>{S.actions={};q.docs.forEach(d=>S.actions[d.id]=d.data());S.myAction=S.actions[UID]||null;relay();render();tick();});
   }
   if(mode==='player'){
@@ -475,6 +484,7 @@ function enter(code,mode){
     on(col('actions').doc(UID),s=>{S.myAction=s.exists?s.data():null;render();});
   }
   S.screen='room'; render();
+  if(UID)syncClock(code);
 }
 async function playerLeave(){
   const st=S.room?.status, m=me();
@@ -502,7 +512,14 @@ const roleOf=id=>{const s=S.secrets[id];return s&&S.room&&s.game===S.room.gameNo
 const alivePlayers=()=>S.players.filter(p=>p.alive);
 const autoOn=()=>!!S.room&&S.room.auto!==false;
 const T=()=>({...DEF_T,...(S.room?.timers||{})});
-function dlFor(status,force){if(!force&&!autoOn())return null;const t=T();const s={day0:t.reveal,night:t.night,revenge:t.revenge,morning:t.talk,vote:t.vote,result:t.result,defense:t.defense}[status];return s?Date.now()+s*1000:null;}
+const srvNow=()=>Date.now()+(S.offset||0);
+async function syncClock(code){
+  try{const ref=roomRef(code).collection('clock').doc(UID),t0=Date.now();
+    await ref.set({t:firebase.firestore.FieldValue.serverTimestamp()});
+    const snap=await ref.get({source:'server'}),t1=Date.now(),ts=msOf(snap.data()?.t);
+    if(ts)S.offset=Math.round(ts-(t0+t1)/2);}catch(e){}
+}
+function dlFor(status,force){if(!force&&!autoOn())return null;const t=T();const s={day0:t.reveal,night:t.night,revenge:t.revenge,morning:t.talk,vote:t.vote,result:t.result,defense:t.defense}[status];return s?srvNow()+s*1000:null;}
 const curDist=()=>Array.isArray(S.room?.customDist)&&S.room.customDist.length===KEYS.length?[...S.room.customDist]:defaultDist(S.players.length);
 
 /* ---------- create / join ---------- */
@@ -540,7 +557,7 @@ async function joinPlayer(name){
 /* ---------- host: relay secret info during the night ---------- */
 let relayBusy=false;
 async function relay(){
-  if(relayBusy||S.mode!=='host'||!isHost()||S.room.status!=='night') return;
+  if(relayBusy||S.mode!=='host'||!isHost()||!S.secretsReady||S.room.status!=='night') return;
   const b=db.batch(); let n=0; const round=S.room.round;
   const act=id=>{const a=S.actions[id];return a&&a.round===round&&alivePlayers().some(p=>p.id===id)&&alivePlayers().some(p=>p.id===a.target)&&a.target!==id?a:null};
   const mafia=Object.keys(S.secrets).filter(id=>isMafiaRole(roleOf(id)));
@@ -569,10 +586,10 @@ function teamWinner(ids,role){
   return ids.length===0?'draw':m===0?'town':m>=ids.length-m?'mafia':null;
 }
 function endPoints(role,winner,alive,n){
-  const small=n<=6;
-  if(role==='survivor') return alive?3:0;
-  if(ROLES[role]?.team==='town') return winner==='town'?(small?1:2):0;
-  if(isMafiaRole(role)) return winner==='mafia'?(small?2:3):0;
+  const big=n>PTS.small?1:0;
+  if(role==='survivor') return alive?PTS.survivor:0;
+  if(ROLES[role]?.team==='town') return winner==='town'?PTS.town[big]:0;
+  if(isMafiaRole(role)) return winner==='mafia'?PTS.mafia[big]:0;
   return 0;
 }
 function mafiaAgreement(players,secrets,actions,round){
@@ -589,7 +606,7 @@ function nightOutcome(players,secrets,actions,round,choose){
   const role=id=>secrets[id]?.role;
   const target=id=>{const a=actions[id];return a&&a.round===round&&ids.has(a.target)?a.target:null;};
   const agreement=mafiaAgreement(players,secrets,actions,round),mafiaTarget=agreement.target;
-  const shields=living.filter(p=>role(p.id)==='doctor').map(p=>({target:target(p.id),used:false})).filter(x=>x.target);
+  const shields=living.filter(p=>role(p.id)==='doctor').map(p=>({doctor:p.id,target:target(p.id),used:false})).filter(x=>x.target&&x.target!==(secrets[x.doctor]?.lastProtected??null));
   const attempts=mafiaTarget?[{target:mafiaTarget,source:'mafia'}]:[], spent=[];
   living.filter(p=>role(p.id)==='police'&&(secrets[p.id].bullets??2)>0).forEach(p=>{
     const t=target(p.id);if(t&&t!==p.id){attempts.push({target:t,source:p.id});spent.push(p.id);}
@@ -601,7 +618,7 @@ function nightOutcome(players,secrets,actions,round,choose){
     const guard=shields.find(x=>x.target===hit.target&&!x.used);
     if(guard){guard.used=true;blocked.push(hit.target);continue;}
     deaths.push(hit.target);
-    if(hit.source!=='mafia'&&isMafiaRole(role(hit.target)))bonuses[hit.source]=(bonuses[hit.source]||0)+2;
+    if(hit.source!=='mafia')bonuses[hit.source]=(bonuses[hit.source]||0)+(isMafiaRole(role(hit.target))?PTS.policeHit:PTS.policeMiss);
   }
   return {deaths,bonuses,spent,blocked,mafiaTarget,agreement,shield:{shields,round}};
 }
@@ -624,7 +641,7 @@ async function finishPhase(deaths,news,next,logs,options={}){
   if(options.shield)b.set(col('secrets').doc('_shield'),{...options.shield,game:S.room.gameNo});
   deaths.forEach(id=>{
     b.update(col('players').doc(id),{alive:false});
-    if(roleOf(id)==='suicidal') points[id]=(points[id]||0)+(S.room.round<=1?3:S.room.round===2?2:S.room.round===3?1:0);
+    if(roleOf(id)==='suicidal') points[id]=(points[id]||0)+(PTS.sniper[Math.max(1,S.room.round)-1]||0);
   });
   Object.entries(options.secretUpdates||{}).forEach(([id,patch])=>b.update(col('secrets').doc(id),patch));
   const aliveIds=S.players.filter(p=>p.alive&&!deaths.includes(p.id)).map(p=>p.id);
@@ -709,6 +726,7 @@ const H={
     await relay();
     const result=nightOutcome(S.players,S.secrets,S.actions,S.room.round,arr=>arr[rnd(arr.length)]);
     const patches={};result.spent.forEach(id=>patches[id]={bullets:Math.max(0,(S.secrets[id].bullets??2)-1)});
+    alivePlayers().filter(p=>roleOf(p.id)==='doctor').forEach(p=>{const sh=result.shield.shields.find(x=>x.doctor===p.id);patches[p.id]={...(patches[p.id]||{}),lastProtected:sh?sh.target:null};});
     const news=result.deaths.length?'💀 مات الليلة: '+result.deaths.map(nameOf).join('، '):'☀️ ما مات أحد الليلة';
     const logs=[`🌙 الليلة ${S.room.round}: هدف المافيا ${result.mafiaTarget?nameOf(result.mafiaTarget):(agreement.ready?'لا أحد':'لا أحد (ما اتفقوا)')}`,
       ...result.spent.map(id=>`🔫 ${nameOf(id)} أطلق طلقة`),news];
@@ -836,22 +854,26 @@ function nightReady(){
   });
 }
 function allVoted(){const alive=alivePlayers().filter(p=>!(S.room.stage==='verdict'&&p.id===S.room.accused));return alive.length>0&&alive.every(p=>S.votes[p.id]);}
-const msOf=t=>t?(typeof t.toMillis==='function'?t.toMillis():Number(t)):0;
+function msOf(t){return t?(typeof t.toMillis==='function'?t.toMillis():Number(t)):0;}
 function hostBeat(){
   if(S.mode!=='host'||!S.room||!isHost())return;
-  const now=Date.now();if(S.lastBeat&&now-S.lastBeat<10000)return;S.lastBeat=now;
+  const now=Date.now();if(S.lastBeat&&now-S.lastBeat<(document.visibilityState==='visible'?10000:4000))return;S.lastBeat=now;
   roomRef(S.code).update({hostBeat:firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
+}
+function hostLag(){
+  const r=S.room;if(!r||S.mode==='host'||!r.hostBeat||['lobby','over'].includes(r.status))return false;
+  return !!r.hostAway||srvNow()-msOf(r.hostBeat)>15000;
 }
 function failover(){
   const r=S.room;if(!r||!S.code||S.mode!=='player'||!me())return;
   const hb=msOf(r.hostBeat);if(!hb)return;
-  const stale=Date.now()-hb;if(stale<35000)return;
+  const limit=r.hostAway?8000:35000,stale=srvNow()-hb;if(stale<limit)return;
   const cands=S.players.filter(p=>p.id!==r.hostUid).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0));
   if(!cands.length)return;
-  const idx=Math.floor((stale-35000)/20000)%cands.length;
+  const idx=Math.floor((stale-limit)/20000)%cands.length;
   if(cands[idx].id!==UID)return;
   if(S.claiming&&Date.now()-S.claiming<15000)return;S.claiming=Date.now();
-  roomRef(S.code).update({hostUid:UID,hostBeat:firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
+  roomRef(S.code).update({hostUid:UID,hostAway:false,hostBeat:firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
 }
 function leftCheck(){
   if(S.mode!=='host'||!S.room||!isHost()||hostBusy)return;
@@ -863,9 +885,10 @@ function leftCheck(){
 async function tick(){
   updateCountdowns();
   hostBeat();failover();leftCheck();
+  {const lag=hostLag();if(lag!==S.lagShown){S.lagShown=lag;render();}}
   if(S.mode!=='host'||!S.room||!isHost()||!autoOn()||hostBusy)return;
   keepAwake();
-  const r=S.room,now=Date.now(),key=[r.gameNo,r.round,r.status,(r.pendingRevenge||[])[0]||'',r.revote?'rv':'',r.stage||''].join(':');
+  const r=S.room,now=srvNow(),key=[r.gameNo,r.round,r.status,(r.pendingRevenge||[])[0]||'',r.revote?'rv':'',r.stage||''].join(':');
   if(key===autoKey)return;
   if(!r.deadline&&dlFor(r.status)){autoKey=key;roomRef(S.code).update({deadline:dlFor(r.status)}).catch(()=>{autoKey='';});return;}
   const late=!!r.deadline&&now>=r.deadline;
@@ -887,7 +910,7 @@ async function tick(){
 }
 function updateCountdowns(){
   sfxCountdown();
-  document.querySelectorAll('.cd[data-dl]').forEach(el=>{const d=Number(el.dataset.dl);const left=(d-Date.now())/1000;el.textContent=d?'⏱️ '+fmt(left):'';el.classList.toggle('urgent',!!d&&left<=10);});
+  document.querySelectorAll('.cd[data-dl]').forEach(el=>{const d=Number(el.dataset.dl);const left=(d-srvNow())/1000;el.textContent=d?'⏱️ '+fmt(left):'';el.classList.toggle('urgent',!!d&&left<=10);});
 }
 let wakeLock=null;
 async function keepAwake(){
@@ -957,8 +980,20 @@ const H3_IC=[['اللاعب','users'],['الفائز','trophy'],['النقاط',
 const EMOJI_LEAD=/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]+\s*/u;
 const EMO=/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;
 S.coll=S.coll||{};
-const COLL=[['النقاط',1],['السجل',1],['نتائج',1],['الإدارة',0],['تلعب',0],['توزيع',0],['اللاعب',0]];
+const COLL=[['التوازن',1],['النقاط',1],['السجل',1],['نتائج',1],['الإدارة',0],['تلعب',0],['توزيع',0],['اللاعب',0]];
+function fitTvGrid(){
+  if(S.mode!=='tv'||!S.room||S.room.status==='lobby')return;
+  document.querySelectorAll('.tv .grid').forEach(g=>{
+    const n=g.children.length;if(!n)return;
+    const gap=10,label=40,W=g.parentElement.clientWidth||innerWidth,H=Math.max(160,innerHeight-g.getBoundingClientRect().top-30);
+    let best={w:0,cols:n};
+    for(let cols=1;cols<=n;cols++){const rows=Math.ceil(n/cols);const w=Math.min((W-(cols-1)*gap)/cols,((H-(rows-1)*gap)/rows-label)*666/744);if(w>best.w)best={w,cols};}
+    const rows=Math.ceil(n/best.cols),cols=Math.ceil(n/rows),w=Math.max(54,Math.min(220,Math.floor(best.w)));
+    g.style.gridTemplateColumns=`repeat(${cols},${w}px)`;g.style.justifyContent='center';g.style.gap=gap+'px';
+  });
+}
 function tidy(){
+  fitTvGrid();
   document.querySelectorAll('#app .btn').forEach(b=>{
     const k=b.dataset.a==='h'?'h:'+b.dataset.v:b.dataset.a;
     if(['kick','leaveSelf','h:end','h:stopGame','h:resetPoints','h:resetTotals'].includes(k))b.classList.add('danger');
@@ -973,6 +1008,31 @@ function tidy(){
     h.onclick=()=>{S.coll[key]=!box.classList.contains('closed');box.classList.toggle('closed');h.setAttribute('aria-expanded',String(!S.coll[key]));};
   });
 }
+
+/* TV: size the player tiles so everyone fits, using as many rows as needed */
+function fitTVGrid(){
+  if(S.mode!=='tv')return;
+  const g=document.querySelector('.tv .grid');if(!g)return;
+  const n=g.children.length;if(!n)return;
+  for(let pass=0;pass<3;pass++){
+  let extra=16,padX=0;
+  [...g.children].forEach(t=>{const pp=t.querySelector('.player-portrait');if(!pp)return;const a=t.getBoundingClientRect(),b=pp.getBoundingClientRect();
+    let k=16;[...t.children].forEach(c=>{if(c!==pp)k+=c.getBoundingClientRect().height;});extra=Math.max(extra,k+6);padX=Math.max(padX,a.width-b.width);});
+  const top=g.getBoundingClientRect().top,W=g.clientWidth||innerWidth,H=Math.max(160,innerHeight-top-80);
+  const gap=n>24?6:10,ratio=744/666,maxW=n<=10?230:200;
+  let best=0,cols=n;
+  for(let c=1;c<=n;c++){
+    const rows=Math.ceil(n/c);
+    const colW=(W-gap*(c-1))/c;
+    const byH=((H-gap*(rows-1))/rows-extra)/ratio+padX;
+    const w=Math.min(colW,byH,maxW);
+    if(w>best+0.5){best=w;cols=c;}
+  }
+  g.style.setProperty('grid-template-columns',`repeat(${cols},${Math.max(50,Math.floor(best))}px)`,'important');
+  g.style.setProperty('justify-content','center','important');g.style.setProperty('align-content','start','important');g.style.setProperty('gap',gap+'px','important');
+  }
+}
+addEventListener('resize',()=>{if(S.mode==='tv')fitTVGrid();});
 function decorate(){
   document.querySelectorAll('#app .btn:not(.deco):not(.noic)').forEach(b=>{
     b.classList.add('deco');
@@ -1055,7 +1115,7 @@ function sfxRoom(prev,r){
 }
 function sfxCountdown(){
   if(!S.room||!S.room.deadline||S.room.auto===false)return;
-  const left=Math.ceil((S.room.deadline-Date.now())/1000),k=S.room.deadline+':'+left;
+  const left=Math.ceil((S.room.deadline-srvNow())/1000),k=S.room.deadline+':'+left;
   if(k===lastTick)return;lastTick=k;
   if(left>=1&&left<=5)SFX.play('tick');else if(left===0)SFX.play('buzz');
 }
@@ -1150,7 +1210,7 @@ function playerBody(){
         if(type==='shoot')body+=`<p>الطلقات المتبقية: ${sec.bullets??2}</p><button class="btn" data-a="skipShot">احتفظ بالطلقة هذه الليلة</button>${S.myAction?.round===r.round&&S.myAction.target===null?'<p>✔ اخترت الاحتفاظ بالطلقة</p>':''}`;
         if(done) body+=`<div class="box center"><b style="font-size:22px">${esc(done.name)}: ${done.isMafia?'مافيا 🔴':'مو مافيا 🟢'}</b></div>`;
         else if(type==='check'&&mine) body+=`<div class="box center"><p class="sub">جاري الفحص…</p></div>`;
-        else body+=`<div class="grid">${targets.map(p=>playerTile(p,'act',mine===p.id)).join('')}</div>`;
+        else body+=`<div class="grid">${targets.map(p=>type==='protect'&&p.id===sec.lastProtected?`<div class="pick locked" aria-disabled="true">🚫 ${esc(p.name)}<small>حميته الليلة اللي فاتت</small></div>`:playerTile(p,'act',mine===p.id)).join('')}</div>`;
         if(type==='kill'){
           const agree=sec.mafiaAgreement?.round===r.round?sec.mafiaAgreement:null;
           const pk=agree?.picks||{}, voters=agree?.voters||[];
@@ -1253,6 +1313,14 @@ function totalsBox(){
     <div class="tot-list">${rows.map(([n,v],i)=>`<div class="tot-row ${v===top&&v>0?'lead':''}"><span class="tot-rank">${i+1}</span><span class="tot-name">${v===top&&v>0?'👑 ':''}${esc(n)}</span><b>${v}</b></div>`).join('')}</div>
     ${S.mode==='host'&&isHost()?`<div class="center" style="margin-top:10px"><button class="btn small" data-a="h" data-v="resetTotals">صفّر المجموع</button></div>`:''}</div>`;
 }
+function balanceBox(){
+  const h=S.room.history||[];if(!h.length)return '';
+  const by={};h.forEach(g=>{const n=g.players.length,k=by[n]=by[n]||{n,games:0,mafia:0,town:0};k.games++;if(g.winner==='mafia')k.mafia++;else if(g.winner==='town')k.town++;});
+  const pct=(a,b)=>b?Math.round(a*100/b)+'%':'—';
+  return `<div class="box"><h3 style="margin-top:0">📊 إحصائيات التوازن</h3><p class="sub" style="margin:0 0 8px">من آخر ${h.length} ${h.length===1?'لعبة':'ألعاب'} في هالغرفة</p>
+    <div class="bal"><div class="bal-row bal-head"><span>اللاعبين</span><span>ألعاب</span><span>المافيا</span><span>الشعب</span></div>
+    ${Object.values(by).sort((a,b)=>a.n-b.n).map(k=>`<div class="bal-row"><span>${k.n}</span><span>${k.games}</span><span>${pct(k.mafia,k.games)}</span><span>${pct(k.town,k.games)}</span></div>`).join('')}</div></div>`;
+}
 function historyBox(){
   const h=[...(S.room.history||[])].reverse();if(!h.length)return '';
   return `<details class="box history"><summary><b>📚 نتائج الألعاب السابقة (${h.length})</b></summary>${h.map(g=>{
@@ -1331,7 +1399,7 @@ function vHost(){
   return `${topBar('غرفة '+esc(r.code),phaseTag())}<div class="cols"><div>
     ${st==='lobby'?'':`<div class="box">${autoBox()}</div>`}
     <div class="box">${ctrl}${st==='lobby'?'':endBox()}</div>
-    ${st==='lobby'?autoBox()+hostJoinBox()+totalsBox()+historyBox():''}
+    ${st==='lobby'?autoBox()+hostJoinBox()+totalsBox()+balanceBox()+historyBox():''}
     ${st==='lobby'?`<div class="box center"><div id="qr" class="qr"></div><p class="sub" style="margin-top:8px;word-break:break-all">${esc(joinUrl(r.code))}</p>${shareBox(r.code)}</div>`:manageBox()}
   </div><div>
     <div class="box"><h3 style="margin-top:0">اللاعبين (${alive.length}/${n})</h3>
@@ -1353,7 +1421,7 @@ let rq=0;
 function render(){if(rq)return;rq=requestAnimationFrame(()=>{rq=0;renderNow();});}
 function renderNow(){
   const scene=sceneFor(S.screen,S.room?.status);
-  document.body.dataset.scene=scene;document.body.dataset.mode=S.mode||'home';document.body.dataset.status=S.room?.status||'';{const n=S.players?.length||0;document.body.dataset.crowd=n>36?'xxl':n>27?'xl':n>18?'l':'';}
+  document.body.dataset.scene=scene;document.body.dataset.mode=S.mode||'home';document.body.dataset.status=S.room?.status||'';
   {const ph=S.screen+':'+(S.room?.status||'')+':'+(S.room?.round||0);if(ph!==S.lastPh){S.lastPh=ph;S.phaseAt=Date.now();}}
   document.body.style.setProperty('--scene-image',`url("${SCENE_ART[scene]}")`);
   $app.className=((S.mode==='tv'||S.mode==='host')&&S.screen==='room'?'wide':'')+(Date.now()-(S.phaseAt||0)<450?' phase-in':'');
@@ -1369,10 +1437,11 @@ function renderNow(){
   if(S.screen==='room'&&S.room)html=sceneBanner()+html;
   const keep=document.activeElement?.id, val=keep?document.getElementById(keep)?.value:null;
   if(S.screen==='room'&&S.room)html+=`<button class="sound-btn" data-a="sound" aria-label="${SFX.on()?'إيقاف الصوت':'تشغيل الصوت'}">${SFX.on()?'🔊':'🔇'}</button>`;
+  if(S.screen==='room'&&hostLag())html+='<div class="host-lag" role="status">⏳ جهاز المشرف مو متصل…</div>';
   if(TEST_MODE)html+='<div class="test-badge">🧪 وضع التجربة: كل تبويب لاعب</div>';
   if(html===S.lastHtml&&!newlyDead.size){updateCountdowns();return;}
   S.lastHtml=html;
-  $app.innerHTML=html;newlyDead.clear();decorate();tidy();
+  $app.innerHTML=html;newlyDead.clear();decorate();tidy();fitTVGrid();
   if(keep&&document.getElementById(keep)&&val!=null){const el=document.getElementById(keep);el.value=val;el.focus();}
   updateCountdowns();
   const q=document.getElementById('qr');
@@ -1396,7 +1465,11 @@ document.addEventListener('click',e=>{
     storeOk:()=>{ls.set('mafia_store_ok','1');render();}, playerLeave:()=>playerLeave(), sound:()=>SFX.toggle(), narr:()=>NARR.toggle(), tutDone:()=>{ls.set('mafia_tut','1');render();}, transfer:()=>hostAction('transfer',v), shareRoom:()=>navigator.share&&navigator.share({title:'مافيا',text:'تعال العب مافيا معنا 🕵️',url:joinUrl(S.code)}).catch(()=>{}), kick:()=>hostAction('kick',v), h:()=>hostAction(v), timer:()=>H.timer(v).catch(onErr), joinSelf:()=>hostAction('joinSelf'), leaveSelf:()=>hostAction('leaveSelf')
   }[b.dataset.a]||(()=>{}))();
 });
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){wakeLock=null;tick();}});
+document.addEventListener('visibilitychange',()=>{
+  const vis=document.visibilityState==='visible';
+  if(S.mode==='host'&&S.room&&isHost()&&S.code)roomRef(S.code).update({hostAway:!vis,hostBeat:firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
+  if(vis){wakeLock=null;keepAwake();tick();}
+});
 document.addEventListener('keydown',e=>{const rb=e.target.closest&&e.target.closest('[role=button]');if(rb&&(e.key==='Enter'||e.key===' ')){e.preventDefault();rb.click();return;}if(e.key!=='Enter')return;if(document.getElementById('hostName')){hostAction('joinSelf');return;}if(document.getElementById('code'))document.querySelector('[data-a=join]').click();else if(document.getElementById('name'))document.querySelector('[data-a=name]').click();});
 render();
 
