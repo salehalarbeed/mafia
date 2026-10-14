@@ -372,6 +372,8 @@ body[data-mode="tv"] .tv .grid .player-name{white-space:nowrap;overflow:hidden;t
 .turn-talk.mine{border-color:#f2d47a;box-shadow:0 0 0 3px #f2d47a55}
 body[data-mode="tv"] .turn-talk{font-size:clamp(26px,2.4vw,48px)}body[data-mode="tv"] .turn-talk small{font-size:clamp(16px,1.3vw,26px)}
 @media(prefers-reduced-motion:reduce){.reveal-cd.pop{animation:none}}
+.mates .row{display:flex;justify-content:space-between;align-items:center;gap:8px}.mates .tag.gold{background:#c9a227;color:#1b1408}.mates .tag.dead{opacity:.7}.mates .me-row{border-top:1px solid #ffffff18;margin-top:4px;padding-top:8px}
+body[data-mode="tv"] .tv:has(.tv-cd) .grid{display:none}
 </style>
 </head>
 <body>
@@ -744,7 +746,7 @@ const H={
     ids.forEach(id=>{
       b.set(col('secrets').doc(id),{role:role[id],game,checks:[],mafiaPicks:{},mafiaAgreement:null,bullets:role[id]==='police'?(n<=6?1:2):0,
         spyIntel:role[id]==='spy'?(()=>{const candidates=ids.filter(x=>['doctor','journalist','mayor'].includes(role[x]));const x=candidates.length?candidates[rnd(candidates.length)]:null;return x?{name:nameOf(x),role:role[x]}:null;})():null,
-        teammates:isMafiaRole(role[id])?mafia.filter(x=>x!==id).map(x=>({id:x,name:nameOf(x)})):[]});
+        teammates:isMafiaRole(role[id])?mafia.filter(x=>x!==id).map(x=>({id:x,name:nameOf(x),role:role[x]})):[]});
       b.update(col('players').doc(id),{alive:true,points:0});
     });
     clearSub(b,'actions',S.actions); clearSub(b,'votes',S.votes);
@@ -1277,7 +1279,14 @@ function playerBody(){
           const pk=agree?.picks||{}, voters=agree?.voters||[];
           const others=sec.teammates.filter(t=>voters.includes(t.id));
           body+=`<div class="box ${agree?.ready?'':'warn'}"><b>${agree?.ready?'✔ اتفقت المافيا على '+esc(nameOf(agree.target)):'⏳ لازم كل أفراد المافيا الأحياء يختارون نفس الشخص'}</b><p>${agree?`${agree.submitted} من ${agree.total} اختاروا`:''}</p></div>`;
-          if(others.length)body+=`<h3>اختيارات زملائك الأحياء</h3><div class="box">${others.map(t=>`<div class="row">${esc(t.name)}<span class="tag">${pk[t.id]?esc(nameOf(pk[t.id])):'ما اختار'}</span></div>`).join('')}</div>`;
+          if(sec.teammates.length){
+            const alv=id=>alivePlayers().some(p=>p.id===id);
+            body+=`<div class="box mates"><h3 style="margin-top:0">👥 زملاؤك ومين اختاروا</h3>${sec.teammates.map(t=>{
+              const sp=t.role==='spy';
+              const st=!alv(t.id)?'<span class="tag dead">💀 طالع</span>':sp?'<span class="tag">🕵️ جاسوس، ما يختار</span>':pk[t.id]?`<span class="tag gold">🎯 ${esc(nameOf(pk[t.id]))}</span>`:'<span class="tag">⏳ لسه ما اختار</span>';
+              return `<div class="row"><b>${esc(t.name)}</b>${st}</div>`;}).join('')}
+              <div class="row me-row"><b>انت</b>${mine?`<span class="tag gold">🎯 ${esc(nameOf(mine))}</span>`:'<span class="tag">⏳ ما اخترت</span>'}</div></div>`;
+          }
         }
         if(mine&&!done&&type!=='check') body+=`<p class="center sub" style="margin-top:12px">✔ وصل اختيارك، تقدر تغيّره قبل الصبح</p>`;
       }
@@ -1509,7 +1518,7 @@ function renderNow(){
   if(html===S.lastHtml&&!newlyDead.size){updateCountdowns();return;}
   S.lastHtml=html;
   if(S.loading){const slow=Date.now()-(S.loadingAt||0)>7900;html+=`<div class="load-ov" role="status" aria-live="polite"><div class="load-box"><div class="spin"></div><p>${esc(S.loading)}</p>${slow?`<p class="sub">الاتصال بطيء شوي…</p><button class="btn small noic" data-a="cancelLoad">إلغاء وحاول مرة ثانية</button>`:''}</div></div>`;}
-  $app.innerHTML=html;newlyDead.clear();decorate();tidy();fitTVGrid();updTurnTalk();
+  $app.innerHTML=html;newlyDead.clear();decorate();tidy();updTurnTalk();fitTVGrid();
   if(keep&&document.getElementById(keep)&&val!=null){const el=document.getElementById(keep);el.value=val;el.focus();}
   updateCountdowns();
   const q=document.getElementById('qr');
