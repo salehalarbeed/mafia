@@ -1767,7 +1767,7 @@ function vHost(){
 
 function sceneFor(screen,phase){
   if(screen!=='room')return 'home';
-  return ['night','revenge'].includes(phase)?'night':['morning','vote','result','over'].includes(phase)?'day':'home';
+  return ['night','revenge'].includes(phase)?'night':['morning','vote','defense','result','over'].includes(phase)?'day':'home';
 }
 function sceneBanner(){
   return `<div class="stage-art"><span class="stage-caption">${PHASE[S.room.status]||'مافيا'}</span><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${S.room.deadline&&autoOn()?`<span class="stage-round cd" data-dl="${S.room.deadline}"></span>`:''}<span class="stage-round">${S.room.round?'الجولة '+S.room.round:'غرفة '+esc(S.room.code)}</span></span></div>`;
