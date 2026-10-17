@@ -474,6 +474,7 @@ body[data-theme="camp"] .btn.main,body[data-theme="camp"] .ov-tab.on,body[data-t
 body[data-theme="escape"] .btn.main,body[data-theme="escape"] .ov-tab.on,body[data-theme="escape"] .tour-tag{background:linear-gradient(145deg,#ff6b6b,#a3121b)!important;border-color:#ff8f8f!important;color:#fff!important}
 body[data-mode="player"] #app,body[data-mode="host"] #app{padding-bottom:96px}
 #app{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+body[data-theme]::after{display:none!important}
 </style>
 </head>
 <body>
@@ -648,8 +649,10 @@ async function syncClock(code){
     if(ts)S.offset=Math.round(ts-(t0+t1)/2);}catch(e){}
 }
 function dlFor(status,force){if(!force&&!autoOn())return null;const t=T();const s={day0:t.reveal,night:t.night,revenge:t.revenge,morning:S.room?.turnTalk?Math.ceil(alivePlayers().length*TURN_MS/1000)+30:t.talk,vote:t.vote,result:t.result,defense:t.defense}[status];return s?srvNow()+s*1000:null;}
+/* theme backgrounds live next to index.html (theme-<name>_<scene>.webp); missing ones fall back to the classic art */
+const THEME_IMG=Object.fromEntries(['ramadan','camp','escape'].map(t=>[t,Object.fromEntries(['home','night','day'].map(k=>[k,`theme-${t}_${k}.webp`]))]));
 const THEMES={classic:{label:'🎩 الكلاسيكي',deco:''},ramadan:{label:'🌙 رمضان',deco:'🌙🏮✨⭐🕌'},camp:{label:'⛺ المخيم',deco:'⛺🔥🌵🐪✨'},escape:{label:'🗝️ Last Escape',deco:'🗝️🔒🧩⏳🔐'}};
-function themeDeco(){const t=THEMES[S.room?.theme||'classic'];if(!t||!t.deco)return '';const e=[...t.deco];
+function themeDeco(){return '';const t=THEMES[S.room?.theme||'classic'];if(!t||!t.deco)return '';const e=[...t.deco];
   return `<div class="theme-deco" aria-hidden="true">${Array.from({length:14},(_,i)=>`<i style="left:${(i*71)%100}%;top:${(i*37)%100}%;animation-delay:${(i%7)*1.3}s;font-size:${18+(i%4)*8}px">${e[i%e.length]}</i>`).join('')}</div>`;}
 function simpleDist(n){const I=k=>KEYS.indexOf(k),d=KEYS.map(()=>0);if(n<4)return d;d[I('mafia')]=Math.max(1,Math.floor(n/4));d[I('doctor')]=1;if(n>=6)d[I('journalist')]=1;d[I('citizen')]=n-d.reduce((a,b)=>a+b,0);return d;}
 const curDist=()=>Array.isArray(S.room?.customDist)&&S.room.customDist.length===KEYS.length?[...S.room.customDist]:(S.room?.simple?simpleDist(S.players.length):defaultDist(S.players.length));
@@ -1775,7 +1778,8 @@ function renderNow(){
   const scene=sceneFor(S.screen,S.room?.status);
   document.body.dataset.scene=scene;document.body.dataset.mode=S.mode||'home';document.body.dataset.status=S.room?.status||'';document.body.dataset.theme=(S.screen==='room'&&S.room?.theme)||'classic';
   {const ph=S.screen+':'+(S.room?.status||'')+':'+(S.room?.round||0);if(ph!==S.lastPh){S.lastPh=ph;S.phaseAt=Date.now();}}
-  document.body.style.setProperty('--scene-image',`url("${SCENE_ART[scene]}")`);
+  {const th=(S.screen==='room'&&S.room?.theme)||'',img=th&&THEME_IMG[th]?.[scene]?THEME_IMG[th][scene]:SCENE_ART[scene];
+   document.body.style.setProperty('--scene-image',`url("${img}")`);}
   $app.className=((S.mode==='tv'||S.mode==='host')&&S.screen==='room'?'wide':'')+(Date.now()-(S.phaseAt||0)<450?' phase-in':'');
   let html='';
   if(S.screen==='home') html=vHome();
