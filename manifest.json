@@ -6,7 +6,7 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#120d14",
   "theme_color": "#120d14",
   "icons": [
@@ -22,5 +22,11 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "description": "لعبة مافيا جماعية بالعربي — التلفزيون للعرض وكل لاعب من جواله",
+  "id": "./",
+  "categories": [
+    "games",
+    "entertainment"
   ]
 }
