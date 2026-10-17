@@ -1044,7 +1044,7 @@ function hostLag(){
 function failover(){
   const r=S.room;if(!r||!S.code||S.mode!=='player'||!me())return;
   const hb=msOf(r.hostBeat);if(!hb)return;
-  const limit=r.hostAway?8000:35000,stale=srvNow()-hb;if(stale<limit)return;
+  const limit=r.hostAway?60000:90000,stale=srvNow()-hb;if(stale<limit)return;
   const cands=S.players.filter(p=>p.id!==r.hostUid).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0));
   if(!cands.length)return;
   const idx=Math.floor((stale-limit)/20000)%cands.length;
@@ -1303,7 +1303,7 @@ function sfxRoom(prev,r){
     const st0=r.status;
     if(st0==='day0')NARR.say('توزعت الشخصيات. كل واحد يكشف شخصيته بسرية');
     else if(st0==='night'){NARR.say('حل الليل. الكل عينه على جواله',1800);if(nightType())buzz(250);}
-    else if(st0==='morning'){NARR.say('صباح الخير. '+(r.news||''),1800);if(S.mode==='tv'){S.dramaAt=Date.now();setTimeout(()=>{S.lastHtml=null;render();},5700);}}
+    else if(st0==='morning'){NARR.say('صباح الخير. '+(r.news||''),1800);S.dramaAt=Date.now();setTimeout(()=>{S.lastHtml=null;render();},5700);if(S.mode!=='tv')setTimeout(()=>buzz((r.news||'').includes('💀')?[200,100,400]:60),2600);}
     else if(st0==='vote'){NARR.say(r.stage==='verdict'?'تصويت نهائي. يطلع أو يبقى؟':'وقت التصويت. صوتوا على مين يطلع');if(me()?.alive)buzz([100,80,100]);}
     else if(st0==='defense'){SFX.play('gavel');NARR.say(r.news,800);if(r.accused===UID)buzz([300,100,300]);}
     else if(st0==='revenge')NARR.say('الانتحاري طلع، وبياخذ معاه واحد',1500);
@@ -1399,7 +1399,7 @@ function championBox(){const t=tourney();if(!t||t.done<t.len||S.room.status!=='o
     <div class="champ-crown">👑</div><div class="champ-title">بطل الليلة</div><div class="champ-name">${esc(rows[0][0])}</div><div class="champ-pts">${rows[0][1]} نقطة في ${t.len} ألعاب</div>
     <div class="champ-rest">${rows.slice(1,4).map((r,i)=>`<span>${['🥈','🥉','🏅'][i]} ${esc(r[0])} (${r[1]})</span>`).join('')}</div></div>`;}
 /* TV: dramatic morning reveal */
-function dramaEl(){const r=S.room;if(S.mode!=='tv'||!r||r.status!=='morning'||!S.dramaAt)return '';const el=Date.now()-S.dramaAt;if(el>5600)return '';
+function dramaEl(){const r=S.room;if(!r||r.status!=='morning'||!S.dramaAt)return '';const el=Date.now()-S.dramaAt;if(el>5600)return '';
   return `<div class="drama" style="animation-delay:-${el}ms"><div class="dr-wait" style="animation-delay:-${el}ms">🥁<span>الصبح وصل… مين ما صحى؟</span></div><div class="dr-news" style="animation-delay:-${el}ms">${esc(r.news||'')}</div></div>`;}
 
 /* ---------- end of game: simple tabs ---------- */
@@ -1497,11 +1497,16 @@ function playerTile(p,action=null,selected=false){
   if(S.mode!=='tv')return `<${tag} class="pick ${dead?'dead':''} ${selected?'on':''}" ${action?`type="button" data-a="${action}" data-v="${p.id}" aria-pressed="${selected}"`:''}>${dead?'💀 ':''}${p.avatar?`<span class="pk-av">${p.avatar}</span>`:''}${esc(p.name)}</${tag}>`;
   return `<${tag} class="player-tile ${dead?'fallen':''} ${dead&&newlyDead.has(p.id)?'falling':''} ${selected?'on':''}" ${action?`type="button" data-a="${action}" data-v="${p.id}" aria-pressed="${selected}"`:''} aria-label="${esc(p.name)} — ${dead?'خرج':'في اللعبة'}"><span class="player-portrait" aria-hidden="true"><span class="status-flip"><span class="status-front"><img src="${PLAYER_IMG.alive}" alt="" decoding="async"><span class="plate-name">${esc(p.name)}</span>${p.avatar?`<span class="tile-av">${p.avatar}</span>`:''}</span><span class="status-back"><img src="${PLAYER_IMG.dead}" alt="" decoding="async"></span></span></span><span class="player-name">${esc(p.name)}</span><span class="player-state">${dead?'خرج من اللعبة':'في اللعبة'}</span></${tag}>`;
 }
+function lobbyRolesBox(){
+  const n=S.players.length;if(n<4)return `<div class="box"><h3 style="margin-top:0">🎴 الشخصيات</h3><p class="sub">تطلع الشخصيات لما يصير عددكم 4 أو أكثر</p></div>`;
+  const d=curDist(),g={};KEYS.forEach((k,i)=>{if(d[i])g[k]=d[i];});
+  const keep=S.room.inGame;S.room.inGame=g;const html=inGameBox(false).replace('🎴 الشخصيات في هاللعبة','🎴 الشخصيات المتوقعة');S.room.inGame=keep;return html;
+}
 function playerBody(){
   const r=S.room, m=me();
   let body='';
   if(r.status==='lobby'){
-    body=`${ls.get('mafia_tut')?'':`<div class="box tut"><h3 style="margin-top:0">كيف تلعب؟ 🕵️</h3><ol><li>لما تبدأ اللعبة اضغط <b>«اكشف شخصيتك»</b> ولا تخلي أحد يشوف شاشتك.</li><li><b>بالليل</b> إذا عندك دور، اختار من جوالك. وإذا ما عندك، خل عينك على شاشة جوالك عشان محد يعرف مين عنده دور.</li><li><b>بالنهار</b> ناقشوا وصوّتوا على اللي تشكون فيه.</li><li>الشعب يفوز إذا طلّع المافيا كلهم، والمافيا تفوز إذا صار عددهم مثل الباقين.</li></ol><button class="btn gold noic" data-a="tutDone">فهمت ✔</button></div>`}<div class="box center"><div class="hero-ic">${ico('users',40)}</div><h2>أهلاً ${esc(m.name)} 👋</h2><p class="sub">انتظر المشرف يبدأ اللعبة<span class="dots"><i></i><i></i><i></i></span></p></div>
+    body=lobbyRolesBox()+`${ls.get('mafia_tut')?'':`<div class="box tut"><h3 style="margin-top:0">كيف تلعب؟ 🕵️</h3><ol><li>لما تبدأ اللعبة اضغط <b>«اكشف شخصيتك»</b> ولا تخلي أحد يشوف شاشتك.</li><li><b>بالليل</b> إذا عندك دور، اختار من جوالك. وإذا ما عندك، خل عينك على شاشة جوالك عشان محد يعرف مين عنده دور.</li><li><b>بالنهار</b> ناقشوا وصوّتوا على اللي تشكون فيه.</li><li>الشعب يفوز إذا طلّع المافيا كلهم، والمافيا تفوز إذا صار عددهم مثل الباقين.</li></ol><button class="btn gold noic" data-a="tutDone">فهمت ✔</button></div>`}<div class="box center"><div class="hero-ic">${ico('users',40)}</div><h2>أهلاً ${esc(m.name)} 👋</h2><p class="sub">انتظر المشرف يبدأ اللعبة<span class="dots"><i></i><i></i><i></i></span></p></div>
     <div class="grid">${S.players.map(p=>playerTile(p)).join('')}</div>`;
   } else {
     const sec=mySec(), alive=alivePlayers();
