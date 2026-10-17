@@ -561,6 +561,14 @@ let db=null, auth=null, UID=null, AUTH_ERR=null;
 try{
   firebase.initializeApp(FIREBASE_CONFIG);
   db=firebase.firestore(); auth=firebase.auth();
+  /* every document gets an expiry date; Firestore TTL deletes old rooms on its own */
+  try{const FS=firebase.firestore,TS=FS.Timestamp;
+    if(TS&&TS.fromMillis){
+      const exp=()=>TS.fromMillis(Date.now()+24*3600e3),add=d=>(d&&typeof d==='object'&&!Array.isArray(d))?{...d,expireAt:exp()}:d;
+      const DR=FS.DocumentReference&&FS.DocumentReference.prototype;
+      if(DR){const s0=DR.set,u0=DR.update;DR.set=function(d,o){return s0.call(this,add(d),o);};DR.update=function(d,...r){return typeof d==='object'?u0.call(this,add(d)):u0.call(this,d,...r);};}
+      const b0=db.batch.bind(db);db.batch=()=>{const b=b0(),s1=b.set.bind(b),u1=b.update.bind(b);b.set=(r,d,o)=>s1(r,add(d),o);b.update=(r,d)=>u1(r,add(d));return b;};
+    }}catch(e){console.warn('ttl',e);}
   let first=true;
   (TEST_MODE?auth.setPersistence(firebase.auth.Auth.Persistence.SESSION):Promise.resolve()).catch(()=>{}).then(()=>auth.onAuthStateChanged(u=>{
     if(u){ UID=u.uid; render(); if(!S.warm){S.warm=1;db.collection('mafiaRooms').doc('0000').get().catch(()=>{});} const saved=JSON.parse(ls.get('mafia_last')||'null'); if(saved&&!params.get('room')&&S.screen==='home'){enter(saved.code,saved.mode);return;} if(params.get('room')&&S.screen==='join'&&!S.joinTV&&!S.autoJoined){S.autoJoined=true;joinFlow(params.get('room'));} }
