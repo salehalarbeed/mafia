@@ -480,6 +480,8 @@ body[data-theme]::after{display:none!important}
 .pts-actions{display:flex;gap:8px;margin-top:10px}.pts-actions .btn{flex:1}.pts-actions .btn[disabled]{opacity:.5}
 .skip-talk{margin-top:12px;text-align:center}.skip-talk .btn{width:100%}.skip-talk small{display:block;color:#a59cad;margin-top:6px}
 .skip-tv{font-size:clamp(18px,1.6vw,32px);color:#edcf81}
+.pick.offline,.player-tile.offline{opacity:.45}
+.player-tile.offline::after{content:"📵";position:absolute;top:2%;left:6%;font-size:clamp(14px,20cqw,34px)}
 </style>
 </head>
 <body>
@@ -504,7 +506,7 @@ const PLAYER_IMG = {"alive": "data:image/webp;base64,UklGRmpJAABXRUJQVlA4WAoAAAA
 [ROLE_IMG,SCENE_ART,PLAYER_IMG].forEach(m=>Object.keys(m).forEach(k=>{m[k]=u(m[k])}));})();
 const TURN_MS=15000;
 const DEF_T={reveal:30,night:60,revenge:30,talk:120,vote:60,result:8,defense:20};
-const T_LIM={defense:[10,60,5],reveal:[10,120,10],night:[30,180,15],talk:[30,600,30],vote:[20,180,10]};
+const T_LIM={defense:[10,300,5],reveal:[10,300,10],night:[30,900,15],talk:[30,3600,30],vote:[20,900,10]};
 const fmt=s=>{s=Math.max(0,Math.round(s));const m=Math.floor(s/60),x=s%60;return m?`${m}:${String(x).padStart(2,'0')}`:`${x} ث`;};
 const PTS={small:6,town:[1,2],mafia:[2,3],guard:1,sniper:[3,2,1],policeHit:2,policeMiss:-1};
 const nq=n=>n===1?'نقطة واحدة':n===2?'نقطتين':`${n} نقاط`;
@@ -594,7 +596,7 @@ function stopAll(){S.unsubs.forEach(u=>{try{u()}catch(e){}});S.unsubs=[];}
 function onErr(e){if(S.mode==='host'&&S.room&&S.room.hostUid!==UID)return;console.error(e);toast('ما في صلاحية أو انقطع الاتصال');}
 function enter(code,mode){
   stopAll();newlyDead.clear();
-  Object.assign(S,{ptsDraft:{},code,mode,room:null,players:[],votes:{},secrets:{},actions:{},secret:null,myAction:null,revealed:false,secretsReady:false,playersReady:false,votesReady:false});
+  Object.assign(S,{ptsDraft:{},rejoins:{},code,mode,room:null,players:[],votes:{},secrets:{},actions:{},secret:null,myAction:null,revealed:false,secretsReady:false,playersReady:false,votesReady:false});
   ls.set('mafia_last',JSON.stringify({code,mode}));
   const on=(q,f)=>S.unsubs.push(q.onSnapshot(f,onErr));
   on(roomRef(code),s=>{
@@ -610,6 +612,7 @@ function enter(code,mode){
   on(col('players'),q=>{S.playersReady=true;const previous=new Map(S.players.map(p=>[p.id,p.alive]));if(S.room&&S.room.status==='lobby'&&previous.size&&q.size>previous.size)SFX.play('join');S.players=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.joinedAt-b.joinedAt);S.players.forEach(p=>{if(previous.get(p.id)===true&&p.alive===false)newlyDead.add(p.id);});relay();render();});
   on(col('votes'),q=>{S.votesReady=true;S.votes={};q.docs.forEach(d=>S.votes[d.id]=d.data().target);render();if(S.mode==='host')tick();});
   if(mode==='host'){
+    on(col('rejoin'),q=>{S.rejoins={};q.docs.forEach(d=>S.rejoins[d.id]=d.data());render();});
     on(col('secrets'),q=>{S.secrets={};q.docs.forEach(d=>S.secrets[d.id]=d.data());S.secret=S.secrets[UID]||null;S.secretsReady=true;relay();render();});
     on(col('actions'),q=>{S.actions={};q.docs.forEach(d=>S.actions[d.id]=d.data());S.myAction=S.actions[UID]||null;relay();render();tick();});
   }
@@ -632,7 +635,8 @@ async function playerLeave(){
 async function leaveRoom(){
   if(S.mode==='host'&&isHost()&&S.room&&S.room.status!=='lobby'){
     const next=S.players.filter(p=>p.id!==UID).sort((a,b)=>(a.alive===b.alive?0:a.alive?-1:1)||(a.joinedAt||0)-(b.joinedAt||0))[0];
-    if(next){try{await roomRef(S.code).update({hostUid:next.id});toast(`انتقل الإشراف لـ ${next.name}`);}catch(e){}}
+    if(next){try{await roomRef(S.code).update({hostUid:next.id});toast(`انتقل الإشراف لـ ${next.name}`);}catch(e){}
+      const m=me();if(m&&m.alive&&S.room.status!=='over'){try{await col('players').doc(UID).update({left:true});}catch(e){}}}
   }
   leave();
 }
@@ -694,7 +698,11 @@ async function joinFlow(code){
     S.code=code;
     const p=await withTimeout(col('players').doc(UID).get());
     if(p.exists){S.loading=null;return enter(code,'player');}
-    if(s.data().status!=='lobby') return toast('اللعبة بدت، ما تقدر تدخل الحين');
+    if(s.data().status!=='lobby'){
+      const q=await withTimeout(col('players').get());
+      S.rejoinList=q.docs.map(d=>({id:d.id,...d.data()})).filter(p=>!p.left).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0));
+      S.loading=null;S.screen='rejoin';S.rejoinSent=null;return render();
+    }
     S.loading=null;S.screen='name'; render();
   }catch(e){netFail(e);}finally{if(S.loading)idle();}
 }
@@ -856,6 +864,24 @@ const H={
     if(!S.players.some(p=>p.id===id)||![1,-1].includes(delta))return;
     await db.runTransaction(async tx=>{const ref=col('players').doc(id),snap=await tx.get(ref);if(snap.exists){const value=(snap.data().points||0)+delta;if(Number.isSafeInteger(value))tx.update(ref,{points:value});}});
   },
+  async approveRejoin(newUid){
+    const rq=S.rejoins[newUid];if(!rq)return;const old=rq.pid;const P=S.players.find(p=>p.id===old);
+    if(!P){await col('rejoin').doc(newUid).delete();return toast('اللاعب مو موجود');}
+    const rep=x=>JSON.parse(JSON.stringify(x).split(old).join(newUid));
+    const b=db.batch();const {id,...pdata}=P;
+    b.set(col('players').doc(newUid),rep(pdata));b.delete(col('players').doc(old));
+    Object.entries(S.secrets).forEach(([id,sec])=>{if(id===old){b.set(col('secrets').doc(newUid),rep(sec));b.delete(col('secrets').doc(old));}
+      else if(JSON.stringify(sec).includes(old))b.set(col('secrets').doc(id),rep(sec));});
+    if(S.actions[old])b.delete(col('actions').doc(old));
+    if(S.votes[old])b.delete(col('votes').doc(old));
+    Object.entries(S.votes).forEach(([v,t])=>{if(t===old)b.delete(col('votes').doc(v));});
+    const r=S.room,keys=['hostUid','accused','candidates','pendingRevenge','ptsWhy','voteHist','outs','booms'],upd={};
+    keys.forEach(k=>{if(r[k]!==undefined&&JSON.stringify(r[k]).includes(old))upd[k]=rep(r[k]);});
+    if(Object.keys(upd).length)b.update(roomRef(S.code),upd);
+    b.delete(col('rejoin').doc(newUid));
+    await b.commit();toast(`✔ رجع ${rq.name}`);
+  },
+  async denyRejoin(newUid){await col('rejoin').doc(newUid).delete();},
   async saveAllPoints(){
     if(!isHost())return;const d=S.ptsDraft||{};const ch=S.players.filter(p=>d[p.id]!==undefined&&d[p.id]!==(p.points||0));
     if(!ch.length)return;
@@ -1077,9 +1103,32 @@ function leftCheck(){
   S.removing=p.id;const msg=`🚪 ${p.name} طلع من الغرفة`;
   hostBusy=true;finishPhase([p.id],S.room.news?S.room.news+'\n'+msg:msg,st,[msg],{protectionApplied:true}).catch(onErr).finally(()=>{hostBusy=false;setTimeout(()=>{S.removing=null},3000);});
 }
+
+/* ---------- presence: players who closed the game don't stay in the room ---------- */
+const SEEN_EVERY=20000, OFF_AFTER=60000, LOBBY_DROP=75000, GAME_DROP=180000;
+const lastSeenMs=p=>msOf(p.seen)||p.joinedAt||0;
+const isOffline=p=>p.id!==S.room?.hostUid&&srvNow()-lastSeenMs(p)>OFF_AFTER;
+function heartbeat(force){
+  const m=me();if(!S.room||!m||!S.code||S.mode==='tv'||document.visibilityState!=='visible')return;
+  if(!force&&S.lastSeenAt&&Date.now()-S.lastSeenAt<SEEN_EVERY)return;S.lastSeenAt=Date.now();
+  col('players').doc(UID).update({seen:firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')heartbeat(true);});
+function presenceCheck(){
+  if(S.mode!=='host'||!S.room||!isHost()||hostBusy||!S.playersReady)return;
+  const st=S.room.status,now=srvNow();
+  if(st==='lobby'){
+    const gone=S.players.filter(p=>p.id!==UID&&now-lastSeenMs(p)>LOBBY_DROP);
+    if(gone.length&&!S.dropping){S.dropping=1;const b=db.batch();gone.forEach(p=>b.delete(col('players').doc(p.id)));b.commit().catch(()=>{}).finally(()=>setTimeout(()=>S.dropping=0,4000));}
+    return;
+  }
+  if(['over','revenge'].includes(st)||!S.secretsReady)return;
+  const p=S.players.find(x=>x.alive&&!x.left&&x.id!==UID&&now-lastSeenMs(x)>GAME_DROP);
+  if(p&&!S.dropping){S.dropping=1;col('players').doc(p.id).update({left:true}).catch(()=>{}).finally(()=>setTimeout(()=>S.dropping=0,4000));}
+}
 async function tick(){
   updateCountdowns();
-  hostBeat();failover();leftCheck();
+  hostBeat();failover();leftCheck();heartbeat();presenceCheck();
   {const lag=hostLag();if(lag!==S.lagShown){S.lagShown=lag;render();}}
   if(S.mode!=='host'||!S.room||!isHost()||!autoOn()||hostBusy)return;
   if(S.room.status!=='lobby'&&(!S.secretsReady||!S.playersReady||!S.votesReady))return; // a new host must load everything before running the game
@@ -1454,6 +1503,30 @@ function overView(){
   return `<div class="ov-tabs" role="tablist">${tabs.map(([k,l])=>`<button class="ov-tab ${k===tab?'on':''}" role="tab" aria-selected="${k===tab}" data-a="ovTab" data-v="${k}">${l}</button>`).join('')}</div>
     <div class="ov-body">${body}</div>${share}${host}${S.mode==='player'?`<div class="center" style="margin-top:14px">${igLink()}</div>`:''}`;
 }
+
+/* ---------- coming back on a new phone / browser ---------- */
+function vRejoin(){
+  if(S.rejoinSent)return `<div class="top"><button class="btn small" data-a="rejoinCancel">رجوع</button><span class="code">${esc(S.code)}</span></div>
+    <div class="box center"><div class="spin"></div><h2 style="margin-top:14px">بانتظار موافقة المشرف…</h2><p class="sub">طلبت ترجع باسم <b>${esc(S.rejoinSent.name)}</b>. أول ما يوافق المشرف ترجع للعبة على طول.</p></div>`;
+  const list=S.rejoinList||[];
+  return `<div class="top"><button class="btn small" data-a="home">رجوع</button><span class="code">${esc(S.code)}</span></div>
+    <div class="box center"><h2>اللعبة بدت 🎴</h2><p class="sub">إذا كنت داخلها وطلعت أو غيرت جوالك، اختار اسمك وارجع. المشرف لازم يوافق.</p></div>
+    <div class="grid">${list.map(p=>`<button class="pick" data-a="rejoinAsk" data-v="${p.id}">${p.avatar?p.avatar+' ':''}${esc(p.name)}</button>`).join('')||'<p class="sub center">ما في لاعبين</p>'}</div>`;
+}
+async function rejoinAsk(pid){
+  const p=(S.rejoinList||[]).find(x=>x.id===pid);if(!p)return;
+  try{await col('rejoin').doc(UID).set({name:p.name,pid,at:Date.now()});}catch(e){return onErr(e);}
+  S.rejoinSent={name:p.name,pid};render();
+  clearInterval(S.rejoinTimer);S.rejoinTimer=setInterval(async()=>{
+    try{const me=await col('players').doc(UID).get();if(me.exists){clearInterval(S.rejoinTimer);S.rejoinSent=null;toast('✔ رجعت للعبة');enter(S.code,'player');return;}
+      const rq=await col('rejoin').doc(UID).get();if(!rq.exists){clearInterval(S.rejoinTimer);S.rejoinSent=null;toast('المشرف ما وافق');render();}}catch(e){}
+  },2000);
+}
+function rejoinBox(){
+  const L=Object.entries(S.rejoins||{});if(!L.length||!isHost())return '';
+  return `<div class="box rejoin-box"><h3 style="margin-top:0">🔄 طلبات رجوع</h3>${L.map(([uid,r])=>{const p=S.players.find(x=>x.id===r.pid);
+    return `<div class="row"><span>${esc(r.name)} يبي يرجع من جهاز جديد${p&&!p.alive?' (طالع)':''}</span><span><button class="btn small gold noic" data-a="h" data-v="approveRejoin:${uid}">✅ رجّعه</button> <button class="btn small noic" data-a="h" data-v="denyRejoin:${uid}">✕</button></span></div>`;}).join('')}</div>`;
+}
 /* ---------- views ---------- */
 const PHASE={defense:'الدفاع 🎤',lobby:'الانتظار',day0:'كشف الشخصيات',night:'الليل 🌙',revenge:'اختيار الانتحاري 💣',morning:'الصباح ☀️',vote:'التصويت ⚖️',result:'نتيجة التصويت',over:'نهاية اللعبة'};
 const tagRole=r=>r?`<span class="tag ${ROLES[r].team}">${ROLES[r].icon} ${ROLES[r].name}</span>`:'';
@@ -1518,8 +1591,9 @@ function rolePanel(){
 }
 function playerTile(p,action=null,selected=false){
   const dead=p.alive===false,tag=action?'button':'div';
-  if(S.mode!=='tv')return `<${tag} class="pick ${dead?'dead':''} ${selected?'on':''}" ${action?`type="button" data-a="${action}" data-v="${p.id}" aria-pressed="${selected}"`:''}>${dead?'💀 ':''}${p.avatar?`<span class="pk-av">${p.avatar}</span>`:''}${esc(p.name)}</${tag}>`;
-  return `<${tag} class="player-tile ${dead?'fallen':''} ${dead&&newlyDead.has(p.id)?'falling':''} ${selected?'on':''}" ${action?`type="button" data-a="${action}" data-v="${p.id}" aria-pressed="${selected}"`:''} aria-label="${esc(p.name)} — ${dead?'خرج':'في اللعبة'}"><span class="player-portrait" aria-hidden="true"><span class="status-flip"><span class="status-front"><img src="${PLAYER_IMG.alive}" alt="" decoding="async"><span class="plate-name">${esc(p.name)}</span>${p.avatar?`<span class="tile-av">${p.avatar}</span>`:''}</span><span class="status-back"><img src="${PLAYER_IMG.dead}" alt="" decoding="async"></span></span></span><span class="player-name">${esc(p.name)}</span><span class="player-state">${dead?'خرج من اللعبة':'في اللعبة'}</span></${tag}>`;
+  const off=!dead&&S.room&&isOffline(p);
+  if(S.mode!=='tv')return `<${tag} class="pick ${dead?'dead':''} ${selected?'on':''} ${off?'offline':''}" ${action?`type="button" data-a="${action}" data-v="${p.id}" aria-pressed="${selected}"`:''}>${dead?'💀 ':''}${off?'📵 ':''}${p.avatar?`<span class="pk-av">${p.avatar}</span>`:''}${esc(p.name)}</${tag}>`;
+  return `<${tag} class="player-tile ${off?'offline':''} ${dead?'fallen':''} ${dead&&newlyDead.has(p.id)?'falling':''} ${selected?'on':''}" ${action?`type="button" data-a="${action}" data-v="${p.id}" aria-pressed="${selected}"`:''} aria-label="${esc(p.name)} — ${dead?'خرج':'في اللعبة'}"><span class="player-portrait" aria-hidden="true"><span class="status-flip"><span class="status-front"><img src="${PLAYER_IMG.alive}" alt="" decoding="async"><span class="plate-name">${esc(p.name)}</span>${p.avatar?`<span class="tile-av">${p.avatar}</span>`:''}</span><span class="status-back"><img src="${PLAYER_IMG.dead}" alt="" decoding="async"></span></span></span><span class="player-name">${esc(p.name)}</span><span class="player-state">${dead?'خرج من اللعبة':'في اللعبة'}</span></${tag}>`;
 }
 function lobbyRolesBox(){
   const n=S.players.length;if(n<4)return `<div class="box"><h3 style="margin-top:0">🎴 الشخصيات</h3><p class="sub">تطلع الشخصيات لما يصير عددكم 4 أو أكثر</p></div>`;
@@ -1757,7 +1831,7 @@ function playingHostCtrl(){
 }
 function vHost(){
   const r=S.room, st=r.status, alive=alivePlayers(), n=S.players.length; let ctrl='';
-  if(me()&&st!=='lobby')return `${topBar(esc(me().name)+' • غرفة '+esc(r.code),phaseTag())}${playerBody()}${playingHostCtrl()}
+  if(me()&&st!=='lobby')return `${topBar(esc(me().name)+' • غرفة '+esc(r.code),phaseTag())}${rejoinBox()}${playerBody()}${playingHostCtrl()}
     <div class="box"><h3 style="margin-top:0">النقاط</h3>${board()}</div>
     <button class="btn" data-a="leave">اطلع من الجلسة</button><button class="btn small" style="margin-top:10px" data-a="h" data-v="end">امسح الجلسة</button>`;
   if(st==='lobby'){
@@ -1794,7 +1868,7 @@ function vHost(){
   if(st==='over') ctrl=overView();
   return `${topBar('غرفة '+esc(r.code),phaseTag())}<div class="cols"><div>
     ${st==='lobby'?'':`<div class="box">${autoBox()}</div>`}
-    <div class="box">${ctrl}${st==='lobby'?'':endBox()}</div>
+    ${rejoinBox()}<div class="box">${ctrl}${st==='lobby'?'':endBox()}</div>
     ${st==='lobby'?autoBox()+hostJoinBox()+totalsBox()+balanceBox()+historyBox():''}
     ${st==='lobby'?`<div class="box center"><div id="qr" class="qr"></div><p class="sub" style="margin-top:8px;word-break:break-all">${esc(joinUrl(r.code))}</p>${shareBox(r.code)}</div>`:manageBox()}
   </div><div>
@@ -1828,6 +1902,7 @@ function renderNow(){
   else if(S.screen==='name') html=vName();
   else if(S.screen==='rules') html=vRules();
   else if(S.screen==='profile') html=vProfile();
+  else if(S.screen==='rejoin') html=vRejoin();
   else if(!S.room) html='<p class="center sub" style="margin-top:30vh">جاري الاتصال…</p>';
   else if(S.mode==='tv') html=vTV();
   else if(S.mode==='host') html=isHost()?vHost():'<div class="box">هالجهاز مو جهاز المشرف.<button class="btn" data-a="leave">رجوع</button></div>';
@@ -1867,7 +1942,7 @@ document.addEventListener('click',e=>{
     act:()=>act(v), skipShot, vote:()=>castVote(v),
     adj:()=>H.adj(v).catch(onErr), distReset:()=>H.distReset().catch(onErr), pointsAdj:()=>{const [id,st]=v.split(':');const p=S.players.find(x=>x.id===id);if(!p)return;S.ptsDraft=S.ptsDraft||{};S.ptsDraft[id]=(S.ptsDraft[id]??(p.points||0))+Number(st);S.lastHtml=null;render();},
   pointsCancel:()=>{S.ptsDraft={};S.lastHtml=null;render();}, pointsSave:()=>H.saveAllPoints().catch(onErr), testMode:()=>{if(TEST_MODE){ls.del('mafia_last');location.href=location.pathname;}else{location.href=location.pathname+'?test=1';}}, storageOk:()=>{ls.set('mafia_storage_ok','1');render();}, wipe:async()=>{if(!confirm('تمسح كل بيانات اللعبة من هذا الجهاز؟ بتطلع من أي غرفة وتصير لاعب جديد'))return;try{localStorage.clear();sessionStorage.clear();}catch(e){}try{await auth.signOut();}catch(e){}location.href=location.pathname;},
-    storeOk:()=>{ls.set('mafia_store_ok','1');render();}, ovTab:()=>{S.overTab=v;S.overTabAt=Date.now()+30000;S.lastHtml=null;render();scrollTo(0,0);}, overNext:()=>{S.overSeen=S.room?.gameNo||0;S.lastHtml=null;render();scrollTo(0,0);}, pickAv:()=>{const n=document.getElementById('name')?.value||'';S.avatar=v;S.lastHtml=null;render();const i=document.getElementById('name');if(i)i.value=n;}, resetProfile:()=>{if(confirm('تمسح سجلك؟')){saveProfile({games:0,wins:0,roles:{},titles:{},seen:[]});S.lastHtml=null;render();}}, goProfile:()=>{S.screen='profile';S.lastHtml=null;render();}, shareResult:()=>shareResult(), installApp:()=>installApp(), zoomCard:()=>{S.zoom=v;S.lastHtml=null;render();}, zoomClose:()=>{S.zoom=null;S.lastHtml=null;render();}, skipTalk:()=>{if(S.room?.status!=='morning'||!me()?.alive)return;col('players').doc(UID).update({talkReady:S.room.round}).catch(onErr);}, cancelLoad:()=>idle(), playerLeave:()=>playerLeave(), sound:()=>SFX.toggle(), narr:()=>NARR.toggle(), tutDone:()=>{ls.set('mafia_tut','1');render();}, transfer:()=>hostAction('transfer',v), shareRoom:()=>navigator.share&&navigator.share({title:'مافيا',text:'تعال العب مافيا معنا 🕵️',url:joinUrl(S.code)}).catch(()=>{}), kick:()=>hostAction('kick',v), h:()=>hostAction(v), timer:()=>H.timer(v).catch(onErr), joinSelf:()=>hostAction('joinSelf'), leaveSelf:()=>hostAction('leaveSelf')
+    storeOk:()=>{ls.set('mafia_store_ok','1');render();}, ovTab:()=>{S.overTab=v;S.overTabAt=Date.now()+30000;S.lastHtml=null;render();scrollTo(0,0);}, overNext:()=>{S.overSeen=S.room?.gameNo||0;S.lastHtml=null;render();scrollTo(0,0);}, pickAv:()=>{const n=document.getElementById('name')?.value||'';S.avatar=v;S.lastHtml=null;render();const i=document.getElementById('name');if(i)i.value=n;}, resetProfile:()=>{if(confirm('تمسح سجلك؟')){saveProfile({games:0,wins:0,roles:{},titles:{},seen:[]});S.lastHtml=null;render();}}, goProfile:()=>{S.screen='profile';S.lastHtml=null;render();}, shareResult:()=>shareResult(), installApp:()=>installApp(), zoomCard:()=>{S.zoom=v;S.lastHtml=null;render();}, zoomClose:()=>{S.zoom=null;S.lastHtml=null;render();}, skipTalk:()=>{if(S.room?.status!=='morning'||!me()?.alive)return;col('players').doc(UID).update({talkReady:S.room.round}).catch(onErr);}, rejoinAsk:()=>rejoinAsk(v), rejoinCancel:()=>{clearInterval(S.rejoinTimer);col('rejoin').doc(UID).delete().catch(()=>{});S.rejoinSent=null;render();}, cancelLoad:()=>idle(), playerLeave:()=>playerLeave(), sound:()=>SFX.toggle(), narr:()=>NARR.toggle(), tutDone:()=>{ls.set('mafia_tut','1');render();}, transfer:()=>hostAction('transfer',v), shareRoom:()=>navigator.share&&navigator.share({title:'مافيا',text:'تعال العب مافيا معنا 🕵️',url:joinUrl(S.code)}).catch(()=>{}), kick:()=>hostAction('kick',v), h:()=>{const [n,arg]=String(v).split(':');return hostAction(n,arg);}, timer:()=>H.timer(v).catch(onErr), joinSelf:()=>hostAction('joinSelf'), leaveSelf:()=>hostAction('leaveSelf')
   }[b.dataset.a]||(()=>{}))();
 });
 document.addEventListener('visibilitychange',()=>{
