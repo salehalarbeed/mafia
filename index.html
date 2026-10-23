@@ -602,7 +602,7 @@ function enter(code,mode){
   const on=(q,f)=>S.unsubs.push(q.onSnapshot(f,onErr));
   on(roomRef(code),s=>{
     if(!s.exists){toast('الجلسة انتهت');return leave();}
-    const prev=S.room; S.room=s.data(); sfxRoom(prev,S.room);
+    const prev=S.room; S.room=s.data(); if(!prev||msOf(S.room.hostBeat)!==msOf(prev.hostBeat))S.beatSeenAt=Date.now(); sfxRoom(prev,S.room);
     if(prev&&prev.hostUid!==S.room.hostUid){
       if(S.room.hostUid===UID&&S.mode!=='host'){toast('👑 صرت المشرف');setTimeout(()=>enter(code,'host'),50);return;}
       if(S.mode==='host'&&S.room.hostUid!==UID){toast('انتقل الإشراف');setTimeout(()=>{if(me())enter(code,'player');else leave();},50);return;}
@@ -1083,7 +1083,8 @@ function hostBeat(){
 }
 function hostLag(){
   const r=S.room;if(!r||S.mode==='host'||!r.hostBeat||['lobby','over'].includes(r.status))return false;
-  return !!r.hostAway||srvNow()-msOf(r.hostBeat)>15000;
+  // judged by this phone's own clock: when did the last heartbeat from the host arrive here?
+  return Date.now()-(S.beatSeenAt||Date.now())>45000;
 }
 function failover(){return; /* hosting never moves automatically */ }
 function failoverOld(){
