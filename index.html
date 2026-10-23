@@ -482,6 +482,7 @@ body[data-theme]::after{display:none!important}
 .skip-tv{font-size:clamp(18px,1.6vw,32px);color:#edcf81}
 .pick.offline,.player-tile.offline{opacity:.45}
 .player-tile.offline::after{content:"📵";position:absolute;top:2%;left:6%;font-size:clamp(14px,20cqw,34px)}
+.pick.offline{opacity:1}.pick.offline::after{display:none}
 </style>
 </head>
 <body>
@@ -633,7 +634,7 @@ async function playerLeave(){
   leave();
 }
 async function leaveRoom(){
-  if(S.mode==='host'&&isHost()&&S.room&&S.room.status!=='lobby'){
+  if(false&&S.mode==='host'&&isHost()&&S.room&&S.room.status!=='lobby'){
     const next=S.players.filter(p=>p.id!==UID).sort((a,b)=>(a.alive===b.alive?0:a.alive?-1:1)||(a.joinedAt||0)-(b.joinedAt||0))[0];
     if(next){try{await roomRef(S.code).update({hostUid:next.id});toast(`انتقل الإشراف لـ ${next.name}`);}catch(e){}
       const m=me();if(m&&m.alive&&S.room.status!=='over'){try{await col('players').doc(UID).update({left:true});}catch(e){}}}
@@ -1084,7 +1085,8 @@ function hostLag(){
   const r=S.room;if(!r||S.mode==='host'||!r.hostBeat||['lobby','over'].includes(r.status))return false;
   return !!r.hostAway||srvNow()-msOf(r.hostBeat)>15000;
 }
-function failover(){
+function failover(){return; /* hosting never moves automatically */ }
+function failoverOld(){
   const r=S.room;if(!r||!S.code||S.mode!=='player'||!me())return;
   const hb=msOf(r.hostBeat);if(!hb)return;
   const limit=r.hostAway?60000:90000,stale=srvNow()-hb;if(stale<limit)return;
@@ -1115,6 +1117,7 @@ function heartbeat(force){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')heartbeat(true);});
 function presenceCheck(){
+  return; // players stay in the room until they leave or the host removes them
   if(S.mode!=='host'||!S.room||!isHost()||hostBusy||!S.playersReady)return;
   const st=S.room.status,now=srvNow();
   if(st==='lobby'){
@@ -1761,7 +1764,7 @@ function inGameBox(open){
   const cards=order.map(k=>{const R=ROLES[k]||{};return `<button class="ig-card ${R.team||''}" data-a="zoomCard" data-v="${k}" aria-label="${esc(R.name||k)}${g[k]>1?' ×'+g[k]:''}">${ROLE_IMG[k]?`<img src="${ROLE_IMG[k]}" alt="">`:`<span class="ig-noimg">${R.icon||''}<br>${esc(R.name||k)}</span>`}${g[k]>1?`<span class="ig-n">×${g[k]}</span>`:''}</button>`;}).join('');
   return `<details class="box ingame" ${open?'open':''}><summary><b>🎴 الشخصيات في هاللعبة (${total})</b>${S.mode==='tv'?'':'<small>اضغط على أي كرت لتكبيره</small>'}</summary><div class="ig-cards" style="--n:${order.length}">${cards}</div></details>`;
 }
-function skipTalkCount(){const r=S.room;const a=alivePlayers();return {n:a.filter(p=>p.talkReady===r.round).length,of:a.length};}
+function skipTalkCount(){const r=S.room;const a=alivePlayers().filter(p=>!isOffline(p)||p.talkReady===r.round);return {n:a.filter(p=>p.talkReady===r.round).length,of:a.length};}
 function skipTalkReady(){const c=skipTalkCount();return c.of>0&&c.n>=c.of;}
 function skipTalkBox(){const r=S.room,m=me();if(r.status!=='morning')return '';const c=skipTalkCount(),need=c.of;
   const mine=m&&m.talkReady===r.round;
