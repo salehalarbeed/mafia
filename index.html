@@ -597,7 +597,7 @@ function stopAll(){S.unsubs.forEach(u=>{try{u()}catch(e){}});S.unsubs=[];}
 function onErr(e){if(S.mode==='host'&&S.room&&S.room.hostUid!==UID)return;console.error(e);toast('ما في صلاحية أو انقطع الاتصال');}
 function enter(code,mode){
   stopAll();newlyDead.clear();
-  Object.assign(S,{ptsDraft:{},rejoins:{},code,mode,room:null,players:[],votes:{},secrets:{},actions:{},secret:null,myAction:null,revealed:false,secretsReady:false,playersReady:false,votesReady:false});
+  Object.assign(S,{playersSeenOnce:false,ptsDraft:{},rejoins:{},code,mode,room:null,players:[],votes:{},secrets:{},actions:{},secret:null,myAction:null,revealed:false,secretsReady:false,playersReady:false,votesReady:false});
   ls.set('mafia_last',JSON.stringify({code,mode}));
   const on=(q,f)=>S.unsubs.push(q.onSnapshot(f,onErr));
   on(roomRef(code),s=>{
@@ -608,9 +608,10 @@ function enter(code,mode){
       if(S.mode==='host'&&S.room.hostUid!==UID){toast('انتقل الإشراف');setTimeout(()=>{if(me())enter(code,'player');else leave();},50);return;}
     }
     if(prev&&prev.gameNo!==S.room.gameNo) S.revealed=false;
+    if(prev&&quietSig(prev,['hostBeat','hostAway','expireAt'])===quietSig(S.room,['hostBeat','hostAway','expireAt']))return;
     relay(); render();
   });
-  on(col('players'),q=>{S.playersReady=true;const previous=new Map(S.players.map(p=>[p.id,p.alive]));if(S.room&&S.room.status==='lobby'&&previous.size&&q.size>previous.size)SFX.play('join');S.players=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.joinedAt-b.joinedAt);S.players.forEach(p=>{if(previous.get(p.id)===true&&p.alive===false)newlyDead.add(p.id);});relay();render();});
+  on(col('players'),q=>{S.playersReady=true;const oldSig=quietSig(S.players,['seen','expireAt']),oldOff=S.players.filter(p=>S.room&&isOffline(p)).map(p=>p.id).join();const previous=new Map(S.players.map(p=>[p.id,p.alive]));if(S.room&&S.room.status==='lobby'&&previous.size&&q.size>previous.size)SFX.play('join');S.players=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.joinedAt-b.joinedAt);S.players.forEach(p=>{if(previous.get(p.id)===true&&p.alive===false)newlyDead.add(p.id);});if(S.playersSeenOnce&&quietSig(S.players,['seen','expireAt'])===oldSig&&S.players.filter(p=>S.room&&isOffline(p)).map(p=>p.id).join()===oldOff)return;S.playersSeenOnce=true;relay();render();});
   on(col('votes'),q=>{S.votesReady=true;S.votes={};q.docs.forEach(d=>S.votes[d.id]=d.data().target);render();if(S.mode==='host')tick();});
   if(mode==='host'){
     on(col('rejoin'),q=>{S.rejoins={};q.docs.forEach(d=>S.rejoins[d.id]=d.data());render();});
@@ -1076,9 +1077,10 @@ function nightReady(){
 }
 function allVoted(){const alive=alivePlayers().filter(p=>!(S.room.stage==='verdict'&&p.id===S.room.accused));return alive.length>0&&alive.every(p=>S.votes[p.id]);}
 function msOf(t){return t?(typeof t.toMillis==='function'?t.toMillis():Number(t)):0;}
+const quietSig=(o,skip)=>JSON.stringify(o,(k,v)=>skip.includes(k)?undefined:v);
 function hostBeat(){
   if(S.mode!=='host'||!S.room||!isHost())return;
-  const now=Date.now();if(S.lastBeat&&now-S.lastBeat<(document.visibilityState==='visible'?10000:4000))return;S.lastBeat=now;
+  const now=Date.now();if(S.lastBeat&&now-S.lastBeat<15000)return;S.lastBeat=now;
   roomRef(S.code).update({hostBeat:firebase.firestore.FieldValue.serverTimestamp()}).catch(()=>{});
 }
 function hostLag(){
@@ -1108,7 +1110,7 @@ function leftCheck(){
 }
 
 /* ---------- presence: players who closed the game don't stay in the room ---------- */
-const SEEN_EVERY=20000, OFF_AFTER=60000, LOBBY_DROP=75000, GAME_DROP=180000;
+const SEEN_EVERY=40000, OFF_AFTER=100000, LOBBY_DROP=75000, GAME_DROP=180000;
 const lastSeenMs=p=>msOf(p.seen)||p.joinedAt||0;
 const isOffline=p=>p.id!==S.room?.hostUid&&srvNow()-lastSeenMs(p)>OFF_AFTER;
 function heartbeat(force){
@@ -1133,6 +1135,7 @@ function presenceCheck(){
 async function tick(){
   updateCountdowns();
   hostBeat();failover();leftCheck();heartbeat();presenceCheck();
+  if(S.room&&S.screen==='room'){const off=S.players.filter(p=>isOffline(p)).map(p=>p.id).join();if(off!==S.offSig){S.offSig=off;S.lastHtml=null;render();}}
   {const lag=hostLag();if(lag!==S.lagShown){S.lagShown=lag;render();}}
   if(S.mode!=='host'||!S.room||!isHost()||!autoOn()||hostBusy)return;
   if(S.room.status!=='lobby'&&(!S.secretsReady||!S.playersReady||!S.votesReady))return; // a new host must load everything before running the game
