@@ -1,0 +1,301 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function room(code) {
+      return get(
+        /databases/$(database)/documents/mafiaRooms/$(code)
+      ).data;
+    }
+
+    function isHost(code) {
+      return signedIn()
+        && room(code).hostUid == request.auth.uid;
+    }
+
+    function player(code, uid) {
+      return get(
+        /databases/$(database)/documents/mafiaRooms/$(code)/players/$(uid)
+      ).data;
+    }
+
+    function secret(code, uid) {
+      return get(
+        /databases/$(database)/documents/mafiaRooms/$(code)/secrets/$(uid)
+      ).data;
+    }
+
+    function alive(code, uid) {
+      return exists(
+        /databases/$(database)/documents/mafiaRooms/$(code)/players/$(uid)
+      ) && player(code, uid).alive == true;
+    }
+
+    function mafiaRole(role) {
+      return role in ['mafia', 'godfather'];
+    }
+
+    function nightAction(code, uid, data, own) {
+      return room(code).status == 'night'
+        && alive(code, uid)
+        && (
+          (
+            own.role == 'police'
+            && own.get('bullets', 2) > 0
+            && (
+              data.target == null
+              || (
+                data.target is string
+                && data.target != uid
+                && alive(code, data.target)
+              )
+            )
+          )
+          || (
+            data.target is string
+            && alive(code, data.target)
+            && (
+              (own.role == 'doctor' && data.target != own.get('lastProtected', null))
+              || (own.role == 'bodyguard' && data.target != uid && data.target != own.get('lastGuarded', null))
+              || (own.role == 'spy' && data.target != uid && own.get('spyUsed', false) == false)
+              || (
+                own.role == 'journalist'
+                && data.target != uid
+              )
+              || (
+                own.role in ['mafia', 'godfather']
+                && data.target != uid
+                && secret(code, data.target).game == room(code).gameNo
+                && !mafiaRole(secret(code, data.target).role)
+              )
+            )
+          )
+        );
+    }
+
+    function revengeAction(code, uid, data, own) {
+      return room(code).status == 'revenge'
+        && own.role == 'suicidal'
+        && exists(
+          /databases/$(database)/documents/mafiaRooms/$(code)/players/$(uid)
+        )
+        && player(code, uid).alive == false
+        && room(code).get('pendingRevenge', []).size() > 0
+        && room(code).pendingRevenge[0] == uid
+        && data.target is string
+        && data.target != uid
+        && alive(code, data.target);
+    }
+
+    function validAction(code, uid) {
+      let data = request.resource.data;
+      let own = secret(code, uid);
+
+      return signedIn()
+        && request.auth.uid == uid
+        && own.game == room(code).gameNo
+        && data.keys().hasAll(['target', 'round'])
+        && data.keys().hasOnly(['target', 'round', 'expireAt'])
+        && data.round is int
+        && data.round == room(code).round
+        && (
+          nightAction(code, uid, data, own)
+          || revengeAction(code, uid, data, own)
+        );
+    }
+
+    match /mafiaRooms/{code} {
+
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && code.matches('^[0-9]{4}$')
+
+        && request.resource.data.keys().hasAll([
+          'code', 'hostUid', 'status', 'round',
+          'gameNo', 'news', 'winner', 'reveal',
+          'customDist', 'created'
+        ])
+
+        && request.resource.data.keys().hasOnly([
+          'code', 'hostUid', 'status', 'round',
+          'gameNo', 'news', 'winner', 'reveal',
+          'customDist', 'created', 'expireAt'
+        ])
+
+        && request.resource.data.code == code
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.status == 'lobby'
+        && request.resource.data.round == 0
+        && request.resource.data.gameNo == 0
+        && request.resource.data.news == ''
+        && request.resource.data.winner == null
+        && request.resource.data.reveal == null
+        && request.resource.data.customDist == null
+        && request.resource.data.created is int;
+
+      allow update: if isHost(code)
+        && (
+          request.resource.data.hostUid == resource.data.hostUid
+          || exists(/databases/$(database)/documents/mafiaRooms/$(code)/players/$(request.resource.data.hostUid))
+        )
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.created == resource.data.created
+        || (
+          signedIn()
+          && exists(/databases/$(database)/documents/mafiaRooms/$(code)/players/$(request.auth.uid))
+          && request.resource.data.hostUid == request.auth.uid
+          && resource.data.get('hostBeat', null) != null
+          && (
+            request.time > resource.data.hostBeat + duration.value(80, 's')
+            || (resource.data.get('hostAway', false) == true && request.time > resource.data.hostBeat + duration.value(55, 's'))
+          )
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostUid', 'hostBeat', 'hostAway', 'expireAt'])
+        );
+
+      allow delete: if isHost(code);
+
+      match /players/{uid} {
+
+        allow read: if signedIn();
+
+        // The host may also join as a player (removed: uid != hostUid).
+        allow create: if isHost(code)
+          || (
+          signedIn()
+          && request.auth.uid == uid
+          && room(code).status == 'lobby'
+
+          && request.resource.data.keys().hasAll([
+            'name', 'alive', 'points', 'joinedAt'
+          ])
+
+          && request.resource.data.keys().hasOnly(['name', 'alive', 'points', 'joinedAt', 'avatar', 'expireAt'])
+          && (!('avatar' in request.resource.data) || (request.resource.data.avatar is string && request.resource.data.avatar.size() <= 8))
+
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 1
+          && request.resource.data.name.size() <= 16
+          && request.resource.data.alive == true
+          && request.resource.data.points == 0
+          && request.resource.data.joinedAt is int
+          );
+
+        allow update: if isHost(code)
+          || (
+            signedIn()
+            && request.auth.uid == uid
+            && (
+              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['left', 'expireAt']) && request.resource.data.left == true)
+              || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seen', 'expireAt']) && request.resource.data.seen == request.time)
+              || (
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly(['talkReady', 'expireAt'])
+                && room(code).status == 'morning'
+                && resource.data.alive == true
+                && request.resource.data.talkReady == room(code).round
+              )
+            )
+          );
+
+        allow delete: if isHost(code)
+          || (signedIn() && request.auth.uid == uid && room(code).status == 'lobby');
+      }
+
+      match /rejoin/{uid} {
+        allow get: if signedIn() && (request.auth.uid == uid || isHost(code));
+        allow list: if isHost(code);
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['name', 'pid', 'at', 'expireAt'])
+          && request.resource.data.name is string
+          && request.resource.data.pid is string
+          && exists(/databases/$(database)/documents/mafiaRooms/$(code)/players/$(request.resource.data.pid));
+        allow delete: if signedIn() && (request.auth.uid == uid || isHost(code));
+      }
+
+      match /react/{uid} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/mafiaRooms/$(code)/players/$(uid))
+          && request.resource.data.keys().hasOnly(['e', 't', 'expireAt'])
+          && request.resource.data.e in ['😂', '😱', '🤔', '🤫', '👀', '😡']
+          && request.resource.data.t is int;
+        allow delete: if isHost(code);
+      }
+
+      match /poke/{uid} {
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['t', 'expireAt'])
+          && request.resource.data.t is int;
+      }
+
+      match /engine/{doc} {
+        allow read, write: if false;
+      }
+
+      match /clock/{uid} {
+        allow get: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['t', 'expireAt'])
+          && request.resource.data.t == request.time;
+      }
+
+      match /secrets/{uid} {
+
+        allow get: if signedIn()
+          && (
+            request.auth.uid == uid
+            || isHost(code)
+          );
+
+        allow list: if isHost(code);
+        allow write: if isHost(code);
+      }
+
+      match /actions/{uid} {
+
+        allow get: if signedIn()
+          && (
+            request.auth.uid == uid
+            || isHost(code)
+          );
+
+        allow list: if isHost(code);
+        allow create, update: if validAction(code, uid);
+        allow delete: if isHost(code);
+      }
+
+      match /votes/{uid} {
+
+        allow read: if signedIn();
+
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && room(code).status == 'vote'
+          && alive(code, uid)
+
+          && request.resource.data.keys().hasAll(['target'])
+          && request.resource.data.keys().hasOnly(['target', 'expireAt'])
+          && request.resource.data.target is string
+          && (
+            request.resource.data.target == 'skip'
+            || (
+              request.resource.data.target != uid
+              && alive(code, request.resource.data.target)
+            )
+          );
+
+        allow delete: if isHost(code);
+      }
+    }
+  }
+}
